@@ -26,6 +26,8 @@ public class ExportHostedService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("Экспортер запущен → {Path}", _settings.OutputPath);
+        _logger.LogInformation("Первый запуск отчёта...");
+await GenerateAllReports(stoppingToken);
 
         while (await _timer.WaitForNextTickAsync(stoppingToken))
         {
@@ -231,7 +233,10 @@ public class ExportHostedService : BackgroundService
 
         var line = $"{shiftPlan12h};{dayFact};{dayDowntime};;{shiftPlan12h};{nightFact};{nightDowntime};;{planA};{factA};{planB};{factB};{planV};{factV};{planG};{factG}";
 
-        var path = Path.Combine(_settings.OutputPath, $"report_{prefix}.txt");
+        var folderPath = Path.Combine(_settings.OutputPath, prefix.ToUpper());
+        Directory.CreateDirectory(folderPath); // создаём папку NKT, NOT, TPA140
+
+        var path = Path.Combine(folderPath, $"report_{prefix}.txt");
         await File.WriteAllTextAsync(path, line + Environment.NewLine, ct);
 
         _logger.LogInformation($"[OK] {prefix.ToUpper()} → {line}");
