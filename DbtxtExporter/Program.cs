@@ -14,6 +14,10 @@ builder.Services.Configure<ExportSettings>(
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("NKT")));
+builder.Services.AddDbContext<NotPakDbContext>(opt =>
+    opt.UseSqlServer(builder.Configuration.GetConnectionString("NOT")));
+builder.Services.AddDbContext<Tpa140DbContext>(opt =>
+    opt.UseSqlServer(builder.Configuration.GetConnectionString("TPA140")));
 
 
 builder.Services.AddHostedService<ExportHostedService>();
