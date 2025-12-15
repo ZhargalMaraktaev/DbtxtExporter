@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using System.Numerics;
 
 namespace DbtxtExporter.Services;
 
@@ -44,24 +45,66 @@ await GenerateAllReports(stoppingToken);
         var dbTpa = scope.ServiceProvider.GetRequiredService<Tpa140DbContext>();
 
         var now = DateTime.Now;
+        var today = DateTime.Today;
 
-        var productionDayStart = now.Hour >= 8
-            ? now.Date.AddHours(8)
-            : now.Date.AddDays(-1).AddHours(8);
+        // === Определяем начало текущей смены (твоя идеальная логика) ===
+        DateTime currentShiftStart;
+        if (now.Hour >= 8 && now.Hour < 20)
+        {
+            currentShiftStart = today.AddHours(8);                    // день: началась сегодня в 08:00
+        }
+        else if (now.Hour < 8)
+        {
+            currentShiftStart = today.AddDays(-1).AddHours(20);       // ночь: началась вчера в 20:00
+        }
+        else // 20:00 – 23:59
+        {
+            currentShiftStart = today.AddHours(20);                   // ночь: началась сегодня в 20:00
+        }
 
-        var dayShiftStart = productionDayStart;
-        var dayShiftEnd = productionDayStart.AddHours(12);
-        var nightShiftStart = productionDayStart.AddHours(12);
-        var nightShiftEnd = productionDayStart.AddDays(1);
+        var currentShiftEnd = currentShiftStart.AddHours(12);
 
+        // Предыдущая смена
+        var previousShiftStart = currentShiftStart.AddHours(-12);
+        var previousShiftEnd = currentShiftStart;
+
+        // Определяем, какая смена дневная, какая ночная
+        bool isCurrentDayShift = currentShiftStart.Hour == 8;
+
+        DateTime dayShiftStart, dayShiftEnd;
+        DateTime nightShiftStart, nightShiftEnd;
+
+        if (isCurrentDayShift)
+        {
+            // Сейчас день → слева: текущий день (обновляется), справа: предыдущая ночь (завершена)
+            dayShiftStart = currentShiftStart;
+            dayShiftEnd = currentShiftEnd;
+            nightShiftStart = previousShiftStart;
+            nightShiftEnd = previousShiftEnd;
+        }
+        else
+        {
+            // Сейчас ночь → слева: предыдущий день (завершён), справа: текущая ночь (обновляется)
+            dayShiftStart = previousShiftStart;
+            dayShiftEnd = previousShiftEnd;
+            nightShiftStart = currentShiftStart;
+            nightShiftEnd = currentShiftEnd;
+        }
+
+        // Производственный месяц (для плана АБВГ)
         var prodMonthStart = new DateTime(now.Year, now.Month, 1).AddHours(8);
         var prodMonthEnd = prodMonthStart.AddMonths(1);
 
         try
         {
-            await GenerateReportNkt(dbNkt.Nkt12Reps, "nkt", ct, prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd);
-            await GenerateReportNot(dbNot.NotPakMp6Reps, "not", ct, prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd);
-            await GenerateReportTpa(dbTpa.Tpa140Nc9Reps, "tpa140", ct, prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd);
+            await GenerateReportNkt(dbNkt.Nkt12Reps, "nkt", ct, prodMonthStart, prodMonthEnd,
+                dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
+
+            await GenerateReportNot(dbNot.NotPakMp6Reps, "not", ct, prodMonthStart, prodMonthEnd,
+                dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd) ;
+
+            await GenerateReportTpa(dbTpa.Tpa140Nc9Reps, "tpa140", ct, prodMonthStart, prodMonthEnd,
+                dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
         }
         catch (Exception ex)
         {
@@ -71,7 +114,7 @@ await GenerateAllReports(stoppingToken);
 
     private async Task GenerateReportNkt(IQueryable<Nkt12Rep> source, string prefix, CancellationToken ct,
         DateTime prodMonthStart, DateTime prodMonthEnd,
-        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd)
+        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd, DateTime previousShiftStart, DateTime currentShiftEnd)
     {
         var records = await source
             .Where(r => r.DateTime >= prodMonthStart.AddDays(-1) && r.DateTime < prodMonthEnd.AddHours(1))
@@ -80,26 +123,26 @@ await GenerateAllReports(stoppingToken);
             .ToListAsync(ct);
 
         await GenerateReportCore(records, r => r.DateTime, prefix, ct,
-            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd);
+            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
     }
 
-    private async Task GenerateReportNot(IQueryable<NotPakMp6Rep> source, string prefix, CancellationToken ct,
+    private async Task GenerateReportNot(IQueryable<NotPakRep> source, string prefix, CancellationToken ct,
         DateTime prodMonthStart, DateTime prodMonthEnd,
-        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd)
+        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd, DateTime previousShiftStart, DateTime currentShiftEnd)
     {
         var records = await source
-            .Where(r => r.DateTimeUpdate >= prodMonthStart.AddDays(-1) && r.DateTimeUpdate < prodMonthEnd.AddHours(1))
-            .OrderBy(r => r.DateTimeUpdate)
+            .Where(r => r.DateTime >= prodMonthStart.AddDays(-1) && r.DateTime < prodMonthEnd.AddHours(1))
+            .OrderBy(r => r.DateTime)
             .ThenBy(r => r.Id)
             .ToListAsync(ct);
 
-        await GenerateReportCore(records, r => r.DateTimeUpdate, prefix, ct,
-            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd);
+        await GenerateReportCore(records, r => r.DateTime, prefix, ct,
+            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
     }
 
     private async Task GenerateReportTpa(IQueryable<Tpa140Nc9Rep> source, string prefix, CancellationToken ct,
         DateTime prodMonthStart, DateTime prodMonthEnd,
-        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd)
+        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd, DateTime previousShiftStart, DateTime currentShiftEnd)
     {
         var records = await source
             .Where(r => r.DateTime >= prodMonthStart.AddDays(-1) && r.DateTime < prodMonthEnd.AddHours(1))
@@ -108,16 +151,17 @@ await GenerateAllReports(stoppingToken);
             .ToListAsync(ct);
 
         await GenerateReportCore(records, r => r.DateTime, prefix, ct,
-            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd);
+            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
     }
 
     private async Task GenerateReportCore<T>(
-        List<T> records,
-        Func<T, DateTime> timeSelector,
-        string prefix,
-        CancellationToken ct,
-        DateTime prodMonthStart, DateTime prodMonthEnd,
-        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd) where T : class
+    List<T> records,
+    Func<T, DateTime> timeSelector,
+    string prefix,
+    CancellationToken ct,
+    DateTime prodMonthStart, DateTime prodMonthEnd,
+    DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd, DateTime loadFrom,      // ← новая
+    DateTime loadTo) where T : class
     {
         if (!records.Any())
         {
@@ -125,56 +169,69 @@ await GenerateAllReports(stoppingToken);
             return;
         }
 
-        // Последняя запись
+        // Последняя запись — берём Plan
         var last = records.MaxBy(r => (timeSelector(r), GetId(r)));
         int planPerHour = GetIntProperty(last, "Plan") ?? 20;
         var shiftPlan12h = (int)Math.Round(planPerHour * 10.54m);
 
-        // Простой
-        decimal CalcDowntime(DateTime start, DateTime end, DateTime nextStart)
+        // === НОВЫЙ РАСЧЁТ ПРОСТОЯ ИЗ БД N0T ===
+        int dayDowntime = 0;
+        int nightDowntime = 0;
+        int dayBad = 0;
+        int nightBad = 0;
+        using var scope = _sp.CreateScope();
+        var delayDb = scope.ServiceProvider.GetRequiredService<NotDelayDbContext>();
+
+
+        List<object> delayData = prefix.ToUpper() switch
         {
-            var shift = records.Where(r => timeSelector(r) >= start && timeSelector(r) < end).ToList();
-            if (!shift.Any()) return 0;
+            "NKT" => await delayDb.NewNkt12Delay
+                .Where(d => d.DateFrom >= loadFrom && d.DateTo <= loadTo)
+                .ToListAsync<object>(ct),
+            "NOT" => await delayDb.NewNkt3Delay
+                .Where(d => d.DateFrom >= loadFrom && d.DateTo <= loadTo)
+                .ToListAsync<object>(ct),
+            "TPA140" => await delayDb.NewNc9Delay
+                .Where(d => d.DateFrom >= loadFrom && d.DateTo <= loadTo)
+                .ToListAsync<object>(ct),
+            _ => throw new NotSupportedException($"Неизвестный префикс: {prefix}")
+        };
 
-            var first = shift.MinBy(r => (timeSelector(r), GetId(r)))!;
-            var firstNext = records.FirstOrDefault(r => timeSelector(r) >= nextStart);
-
-            decimal totalSec = shift.Sum(r => GetIntProperty(r, "DelayTimeThisHour") ?? 0);
-            totalSec += shift.Where(r => !ReferenceEquals(r, first))
-                             .Sum(r => GetIntProperty(r, "DelayTimePrevHour") ?? 0);
-
-            int firstPrev = GetIntProperty(first, "DelayTimePrevHour") ?? 0;
-            if (firstPrev > 0)
-            {
-                var lastBefore = records.Where(r => timeSelector(r) < start)
-                                        .MaxBy(r => (timeSelector(r), GetId(r)));
-
-                decimal secFromLast = lastBefore != null
-                    ? (decimal)(start - timeSelector(lastBefore)).TotalSeconds
-                    : 3600m;
-
-                var expected = secFromLast - (3600m / planPerHour);
-                var corrected = firstPrev;
-                if (expected > 0) corrected -= (int)Math.Floor(expected);
-                if (corrected > 0) totalSec += corrected;
-            }
-
-            if (firstNext != null)
-            {
-                int nextPrev = GetIntProperty(firstNext, "DelayTimePrevHour") ?? 0;
-                if (nextPrev > 0) totalSec += nextPrev;
-            }
-
-            return Math.Round(totalSec / 60m);
+        // Вспомогательные методы для рефлексии
+        T GetProperty<T>(object obj, string name, T defaultValue = default)
+        {
+            var prop = obj.GetType().GetProperty(name);
+            return prop != null ? (T)prop.GetValue(obj)! : defaultValue;
         }
 
-        var dayDowntime = CalcDowntime(dayShiftStart, dayShiftEnd, nightShiftStart);
-        var nightDowntime = CalcDowntime(nightShiftStart, nightShiftEnd, nightShiftEnd);
+        // День
+        var dayHours = delayData.Where(d => GetProperty<DateTime>(d, "DateFrom") >= dayShiftStart &&
+                                            GetProperty<DateTime>(d, "DateFrom") < dayShiftEnd).ToList();
 
+        foreach (var h in dayHours)
+        {
+            int delayTime = GetProperty<int>(h, "DelayTime", 0);
+            delayTime = delayTime / 60;
+            dayDowntime += delayTime;
+        }
+        
+        // Ночь
+        var nightHours = delayData.Where(d => GetProperty<DateTime>(d, "DateFrom") >= nightShiftStart &&
+                                             GetProperty<DateTime>(d, "DateFrom") < nightShiftEnd).ToList();
+
+        foreach (var h in nightHours)
+        {
+            int delayTime = GetProperty<int>(h, "DelayTime", 0);
+            delayTime = delayTime / 60;
+            nightDowntime += delayTime;
+        }
+        dayBad = dayHours.Sum(h => GetProperty<int>(h, "Bad", 0));
+        nightBad = nightHours.Sum(h => GetProperty<int>(h, "Bad", 0));
+        // === Факт и план АБВГ — как было ===
         var dayFact = records.Count(r => timeSelector(r) >= dayShiftStart && timeSelector(r) < dayShiftEnd);
         var nightFact = records.Count(r => timeSelector(r) >= nightShiftStart && timeSelector(r) < nightShiftEnd);
 
-        // Кумулятивный план А,Б,В,Г
+        // Кумулятивный план А,Б,В,Г — оставляем как было
         var planBySmena = new Dictionary<int, decimal> { { 1, 0m }, { 2, 0m }, { 3, 0m }, { 4, 0m } };
 
         var monthly = records
@@ -231,14 +288,14 @@ await GenerateAllReports(stoppingToken);
         int factV = factDict.GetValueOrDefault(3, 0);
         int factG = factDict.GetValueOrDefault(4, 0);
 
-        var line = $"{shiftPlan12h};{dayFact};{dayDowntime};;{shiftPlan12h};{nightFact};{nightDowntime};;{planA};{factA};{planB};{factB};{planV};{factV};{planG};{factG}";
+        // === Запись ===
+        var line = $"{shiftPlan12h};{dayFact};{dayDowntime};{dayBad};{shiftPlan12h};{nightFact};{nightDowntime};{nightBad};{planA};{factA};{planB};{factB};{planV};{factV};{planG};{factG}";
 
         var folderPath = Path.Combine(_settings.OutputPath, prefix.ToUpper());
-        Directory.CreateDirectory(folderPath); // создаём папку NKT, NOT, TPA140
-
+        Directory.CreateDirectory(folderPath);
         var path = Path.Combine(folderPath, $"report_{prefix}.txt");
-        await File.WriteAllTextAsync(path, line + Environment.NewLine, ct);
 
+        await File.WriteAllTextAsync(path, line + Environment.NewLine, ct);
         _logger.LogInformation($"[OK] {prefix.ToUpper()} → {line}");
     }
 

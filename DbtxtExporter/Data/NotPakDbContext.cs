@@ -6,13 +6,13 @@ namespace DbtxtExporter.Data;
 public class NotPakDbContext : DbContext
 {
     public NotPakDbContext(DbContextOptions<NotPakDbContext> options) : base(options) { }
-    public DbSet<NotPakMp6Rep> NotPakMp6Reps => Set<NotPakMp6Rep>();
+    public DbSet<NotPakRep> NotPakMp6Reps => Set<NotPakRep>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.Entity<NotPakMp6Rep>(e =>
+        modelBuilder.Entity<NotPakRep>(e =>
         {
-            e.ToTable("NOT_PAK_MP6_REP", "dbo");
+            e.ToTable("NOT_PAK_REP", "dbo");
             e.HasKey(x => x.Id);
         });
     }

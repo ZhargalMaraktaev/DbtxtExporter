@@ -18,7 +18,8 @@ builder.Services.AddDbContext<NotPakDbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("NOT")));
 builder.Services.AddDbContext<Tpa140DbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("TPA140")));
-
+builder.Services.AddDbContext<NotDelayDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("N0T")));
 
 builder.Services.AddHostedService<ExportHostedService>();
 
