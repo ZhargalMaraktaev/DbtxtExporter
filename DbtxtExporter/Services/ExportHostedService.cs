@@ -172,7 +172,11 @@ await GenerateAllReports(stoppingToken);
         // Последняя запись — берём Plan
         var last = records.MaxBy(r => (timeSelector(r), GetId(r)));
         int planPerHour = GetIntProperty(last, "Plan") ?? 20;
-        var shiftPlan12h = (int)Math.Round(planPerHour * 10.54m);
+        var shiftPlan12h = prefix.ToUpper() switch
+        {
+            "TPA140" => 1000,
+            _ => (int)Math.Round(planPerHour * 10.54m)
+        };
 
         // === НОВЫЙ РАСЧЁТ ПРОСТОЯ ИЗ БД N0T ===
         int dayDowntime = 0;
@@ -231,7 +235,7 @@ await GenerateAllReports(stoppingToken);
         var dayFact = records.Count(r => timeSelector(r) >= dayShiftStart && timeSelector(r) < dayShiftEnd);
         var nightFact = records.Count(r => timeSelector(r) >= nightShiftStart && timeSelector(r) < nightShiftEnd);
 
-        // Кумулятивный план А,Б,В,Г — оставляем как было
+        // === Кумулятивный план А,Б,В,Г ===
         var planBySmena = new Dictionary<int, decimal> { { 1, 0m }, { 2, 0m }, { 3, 0m }, { 4, 0m } };
 
         var monthly = records
@@ -253,23 +257,33 @@ await GenerateAllReports(stoppingToken);
         foreach (var g in groups)
         {
             var sorted = g.OrderBy(timeSelector).ThenBy(r => GetId(r)).ToList();
+            if (!sorted.Any()) continue;
+
             var firstTime = timeSelector(sorted.First());
             var shiftEnd = firstTime.Hour >= 8 && firstTime.Hour < 20
                 ? firstTime.Date.AddHours(20)
                 : firstTime.Date.AddDays(1).AddHours(8);
 
             decimal running = 0m;
+
+            // Для TPA140 — фиксированный план в час
+            decimal planPerHourForSmena = prefix.ToUpper() == "TPA140"
+                ? 1000m / 10.54m
+                : (GetIntProperty(sorted.First(), "Plan") ?? 20);  // для других — как было
+
             for (int i = 0; i < sorted.Count; i++)
             {
                 var curr = sorted[i];
                 var next = i < sorted.Count - 1 ? timeSelector(sorted[i + 1]) : shiftEnd;
                 var duration = (decimal)(next - timeSelector(curr)).TotalHours;
+
                 var prev = running;
                 running += duration;
 
                 decimal eff = prev >= 10.54m ? 0m : running <= 10.54m ? duration : 10.54m - prev;
-                int planVal = GetIntProperty(curr, "Plan") ?? 20;
-                planBySmena[g.Key.Smena] += planVal * eff;
+
+                // Начисляем по фиксированному (для TPA140) или реальному плану
+                planBySmena[g.Key.Smena] += planPerHourForSmena * eff;
             }
         }
 
