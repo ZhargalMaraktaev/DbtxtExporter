@@ -40,9 +40,11 @@ await GenerateAllReports(stoppingToken);
     {
         using var scope = _sp.CreateScope();
 
-        var dbNkt = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var dbNkt = scope.ServiceProvider.GetRequiredService<NktDbContext>();
         var dbNot = scope.ServiceProvider.GetRequiredService<NotPakDbContext>();
         var dbTpa = scope.ServiceProvider.GetRequiredService<Tpa140DbContext>();
+        var dbUrz = scope.ServiceProvider.GetRequiredService<UrzBilDbContext>();
+        var dbUost = scope.ServiceProvider.GetRequiredService<UostIzmLinDbContext>();
 
         var now = DateTime.Now;
         var today = DateTime.Today;
@@ -105,6 +107,12 @@ await GenerateAllReports(stoppingToken);
 
             await GenerateReportTpa(dbTpa.Tpa140Nc9Reps, "tpa140", ct, prodMonthStart, prodMonthEnd,
                 dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
+            
+            await GenerateReportUrz(dbUrz.UrzBilReps, "urz", ct, prodMonthStart, prodMonthEnd,
+                dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
+
+            await GenerateReportUost(dbUost.UostIzmLinReps, "uost", ct, prodMonthStart, prodMonthEnd,
+                dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
         }
         catch (Exception ex)
         {
@@ -154,6 +162,34 @@ await GenerateAllReports(stoppingToken);
             prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
     }
 
+    private async Task GenerateReportUrz(IQueryable<UrzBilRep> source, string prefix, CancellationToken ct,
+        DateTime prodMonthStart, DateTime prodMonthEnd,
+        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd, DateTime previousShiftStart, DateTime currentShiftEnd)
+    {
+        var records = await source
+            .Where(r => r.DateTime >= prodMonthStart.AddDays(-1) && r.DateTime < prodMonthEnd.AddHours(1))
+            .OrderBy(r => r.DateTime)
+            .ThenBy(r => r.Id)
+            .ToListAsync(ct);
+
+        await GenerateReportCore(records, r => r.DateTime, prefix, ct,
+            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
+    }
+
+    private async Task GenerateReportUost(IQueryable<UostIzmLinRep> source, string prefix, CancellationToken ct,
+        DateTime prodMonthStart, DateTime prodMonthEnd,
+        DateTime dayShiftStart, DateTime dayShiftEnd, DateTime nightShiftStart, DateTime nightShiftEnd, DateTime previousShiftStart, DateTime currentShiftEnd)
+    {
+        var records = await source
+            .Where(r => r.DateTime >= prodMonthStart.AddDays(-1) && r.DateTime < prodMonthEnd.AddHours(1))
+            .OrderBy(r => r.DateTime)
+            .ThenBy(r => r.id)
+            .ToListAsync(ct);
+
+        await GenerateReportCore(records, r => r.DateTime, prefix, ct,
+            prodMonthStart, prodMonthEnd, dayShiftStart, dayShiftEnd, nightShiftStart, nightShiftEnd, previousShiftStart, currentShiftEnd);
+    }
+
     private async Task GenerateReportCore<T>(
     List<T> records,
     Func<T, DateTime> timeSelector,
@@ -184,7 +220,7 @@ await GenerateAllReports(stoppingToken);
         int dayBad = 0;
         int nightBad = 0;
         using var scope = _sp.CreateScope();
-        var delayDb = scope.ServiceProvider.GetRequiredService<NotDelayDbContext>();
+        var delayDb = scope.ServiceProvider.GetRequiredService<DelayDbContext>();
 
 
         List<object> delayData = prefix.ToUpper() switch
@@ -196,6 +232,12 @@ await GenerateAllReports(stoppingToken);
                 .Where(d => d.DateFrom >= loadFrom && d.DateTo <= loadTo)
                 .ToListAsync<object>(ct),
             "TPA140" => await delayDb.NewNc9Delay
+                .Where(d => d.DateFrom >= loadFrom && d.DateTo <= loadTo)
+                .ToListAsync<object>(ct),
+            "URZ" => await delayDb.NewUrzBilDelay
+                .Where(d => d.DateFrom >= loadFrom && d.DateTo <= loadTo)
+                .ToListAsync<object>(ct),
+            "UOST" => await delayDb.NewUostIzmLinDelay
                 .Where(d => d.DateFrom >= loadFrom && d.DateTo <= loadTo)
                 .ToListAsync<object>(ct),
             _ => throw new NotSupportedException($"Неизвестный префикс: {prefix}")

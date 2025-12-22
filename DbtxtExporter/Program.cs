@@ -12,13 +12,17 @@ builder.Configuration.AddJsonFile("appsettings.json", optional: false, reloadOnC
 builder.Services.Configure<ExportSettings>(
     builder.Configuration.GetSection("Export"));
 
-builder.Services.AddDbContext<AppDbContext>(options =>
+builder.Services.AddDbContext<NktDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("NKT")));
 builder.Services.AddDbContext<NotPakDbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("NOT")));
 builder.Services.AddDbContext<Tpa140DbContext>(opt =>
     opt.UseSqlServer(builder.Configuration.GetConnectionString("TPA140")));
-builder.Services.AddDbContext<NotDelayDbContext>(options =>
+builder.Services.AddDbContext<UostIzmLinDbContext>(opt =>
+    opt.UseSqlServer(builder.Configuration.GetConnectionString("TPA140")));
+builder.Services.AddDbContext<UrzBilDbContext>(opt =>
+    opt.UseSqlServer(builder.Configuration.GetConnectionString("TPA140")));
+builder.Services.AddDbContext<DelayDbContext>(options =>
     options.UseSqlServer(builder.Configuration.GetConnectionString("N0T")));
 
 builder.Services.AddHostedService<ExportHostedService>();

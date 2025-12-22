@@ -3,9 +3,9 @@ using Microsoft.EntityFrameworkCore;
 
 namespace DbtxtExporter.Data
 {
-    public class AppDbContext : DbContext
+    public class NktDbContext : DbContext
     { 
-        public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+        public NktDbContext(DbContextOptions<NktDbContext> options) : base(options) { }
         public DbSet<Nkt12Rep> Nkt12Reps => Set<Nkt12Rep>();
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
