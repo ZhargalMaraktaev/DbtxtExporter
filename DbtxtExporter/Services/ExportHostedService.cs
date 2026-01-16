@@ -318,7 +318,7 @@ await GenerateAllReports(stoppingToken);
                 var curr = sorted[i];
                 var next = i < sorted.Count - 1 ? timeSelector(sorted[i + 1]) : shiftEnd;
                 var duration = (decimal)(next - timeSelector(curr)).TotalHours;
-
+                 
                 var prev = running;
                 running += duration;
 
